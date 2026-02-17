@@ -1,40 +1,83 @@
 import re
+import json
+from datetime import datetime, timedelta
 
-def parse_reminder(text):
-    text = text.strip()
+HINDI_NUMBERS = {
+    "एक": 1, "दो": 2, "तीन": 3, "चार": 4, "पांच": 5, "पाँच": 5,
+    "छह": 6, "सात": 7, "आठ": 8, "नौ": 9, "दस": 10,
+    "ग्यारह": 11, "बारह": 12
+}
 
-    # 1. check trigger words (PURE HINDI)
-    if "याद दिलाओ" not in text and "याद दिलाना" not in text:
-        return None
+def word_to_number(text):
+    for word, num in HINDI_NUMBERS.items():
+        if word in text:
+            return num
+    return None
 
-    # 2. extract time (PURE HINDI)
-    time_patterns = [
-        r"(आज|कल|परसों)",
-        r"(सुबह|शाम|रात|दोपहर)",
-        r"(\d{1,2}\s*बजे)"
-    ]
+def detect_date(text):
+    today = datetime.now().date()
 
-    time_found = []
-    for pattern in time_patterns:
-        matches = re.findall(pattern, text)
-        time_found.extend(matches)
+    if "परसों" in text:
+        return str(today + timedelta(days=2))
+    elif "कल" in text:
+        return str(today + timedelta(days=1))
+    elif "आज" in text:
+        return str(today)
+    else:
+        return str(today)
 
-    time_str = " ".join(time_found) if time_found else "समय नहीं मिला"
+def detect_period(text):
+    if "सुबह" in text:
+        return "AM"
+    if "शाम" in text or "रात" in text:
+        return "PM"
+    return None
 
-    # 3. extract task (before 'याद दिलाना / याद दिलाओ')
-    task_part = re.split(r"याद दिलाओ|याद दिलाना", text)[0]
+def extract_time(text):
+    # Case 1: 10:30
+    match = re.search(r'(\d{1,2})[:.](\d{2})', text)
+    if match:
+        return int(match.group(1)), int(match.group(2))
 
-    # remove time words from task
-    task_part = re.sub(
-        r"(आज|कल|परसों|सुबह|शाम|रात|दोपहर|\d{1,2}\s*बजे)",
-        "",
-        task_part
-    )
+    # Case 2: 10 बजे
+    match = re.search(r'(\d{1,2})', text)
+    if match:
+        return int(match.group(1)), 0
 
-    task = task_part.strip()
+    # Case 3: "सात बजे"
+    num = word_to_number(text)
+    if num:
+        return num, 0
 
-    print({"time": time_str, "task": task})
-    return {
-        "time": time_str,
-        "task": task
+    return None, None
+
+def extract_alarm_intent(text):
+    text = text.lower()
+
+    result = {
+        "action": None,
+        "date": None,
+        "time": None,
+        "period": None
     }
+
+    # ACTION
+    if "अलार्म" in text or "जगाना" in text or "उठाना" in text:
+        result["action"] = "set_alarm"
+    else:
+        return json.dumps(result, ensure_ascii=False)
+
+    # DATE
+    result["date"] = detect_date(text)
+
+    # PERIOD
+    result["period"] = detect_period(text)
+
+    # TIME
+    hour, minute = extract_time(text)
+    if hour is not None:
+        result["time"] = f"{hour:02d}:{minute:02d}"
+
+    print(result)
+
+    return json.dumps(result, ensure_ascii=False, indent=2)
