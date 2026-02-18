@@ -1,2 +1,5 @@
-vosk 
+vosk
 sounddevice
+python_speech_features
+numpy
+scipy

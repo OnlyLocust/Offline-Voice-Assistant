@@ -1,45 +1,113 @@
+"""
+alarm_thread.py — Background Alarm Checker
+============================================
+Runs a daemon thread that checks every second whether any scheduled
+alarm time matches the current HH:MM. When matched, it rings the alarm
+and announces it via TTS.
+
+Public API:
+    start_alarm_thread()  — call once at startup
+    set_alarm(t)          — schedule alarm at "HH:MM"
+    cancel_alarm()        — cancel the current alarm
+    get_alarm()           — return current alarm time string or None
+"""
+
 import threading
 import time
+import subprocess
 from datetime import datetime
-from datetime import datetime, timedelta
 
-alarm_time = None
-alarm_running = False
+# ── Internal state ─────────────────────────────────────────────────────────────
+_alarm_time: str | None = None
+_alarm_running: bool    = False
+_lock = threading.Lock()
 
-def alarm_checker():
-    global alarm_time, alarm_running
 
-    while alarm_running:
-        if alarm_time:
+# ── Alarm checker loop ─────────────────────────────────────────────────────────
+
+def _speak(text: str):
+    """Non-blocking TTS via PowerShell (Windows) or espeak (Linux/Pi)."""
+    try:
+        import platform
+        if platform.system() == "Windows":
+            safe = text.replace('"', '\\"')
+            subprocess.Popen(
+                [
+                    "powershell", "-Command",
+                    f'Add-Type -AssemblyName System.Speech; '
+                    f'(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{safe}")'
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            # Raspberry Pi / Linux — espeak-ng with Hindi support
+            subprocess.Popen(
+                ["espeak-ng", "-v", "hi", text],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    except Exception:
+        pass  # TTS failure should never crash the assistant
+
+
+def _alarm_checker():
+    global _alarm_time, _alarm_running
+
+    while _alarm_running:
+        with _lock:
+            target = _alarm_time
+
+        if target:
             now = datetime.now().strftime("%H:%M")
-            if now == alarm_time:
-                print("⏰ ALARM RINGING!")
-                alarm_time = None
+            if now == target:
+                msg = f"⏰ अलार्म बज रहा है! समय हो गया {target}"
+                print("\n" + "=" * 45)
+                print(msg)
+                print("=" * 45 + "\n")
+                _speak(f"अलार्म बज रहा है। समय हो गया।")
+
+                with _lock:
+                    _alarm_time = None   # auto-clear after ringing
+
         time.sleep(1)
 
+
+# ── Public API ─────────────────────────────────────────────────────────────────
+
 def start_alarm_thread():
-    global alarm_running
-    alarm_running = True
-    thread = threading.Thread(target=alarm_checker, daemon=True)
-    thread.start()
-
-def set_alarm(t):
-    global alarm_time
-    alarm_time = t
-    print(f"Alarm set for {t}")
+    """Start the background alarm daemon. Call once at program startup."""
+    global _alarm_running
+    _alarm_running = True
+    t = threading.Thread(target=_alarm_checker, daemon=True, name="AlarmChecker")
+    t.start()
+    print("🕐 Alarm thread started.")
 
 
+def set_alarm(t: str):
+    """
+    Schedule an alarm.
 
-# below code is to try how it will run
+    Args:
+        t: Time string in "HH:MM" 24-hour format.
+    """
+    global _alarm_time
+    with _lock:
+        _alarm_time = t
+    print(f"✅ अलार्म सेट हो गया: {t}")
+    _speak(f"अलार्म {t} बजे के लिए सेट हो गया।")
 
-start_alarm_thread()
 
-# set alarm 1 minute ahead for testing
-now = datetime.now()
-test_time = (now + timedelta(minutes=1)).strftime("%H:%M")
+def cancel_alarm():
+    """Cancel the currently scheduled alarm."""
+    global _alarm_time
+    with _lock:
+        _alarm_time = None
+    print("🚫 अलार्म रद्द कर दिया गया।")
+    _speak("अलार्म रद्द कर दिया गया।")
 
-set_alarm(test_time)
 
-# keep program alive
-while True:
-    time.sleep(1)
+def get_alarm() -> str | None:
+    """Return the currently scheduled alarm time, or None."""
+    with _lock:
+        return _alarm_time

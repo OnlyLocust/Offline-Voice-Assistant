@@ -1,24 +1,14 @@
 from datetime import datetime
 
 
-def get_greeting():
+def get_greeting() -> str:
+    """Return a time-appropriate Hindi greeting."""
     hour = datetime.now().hour
     if 5 <= hour < 12:
-        return "Good morning"
+        return "सुप्रभात"       # Good morning
     elif 12 <= hour < 17:
-        return "Good afternoon"
+        return "नमस्ते"         # Good afternoon
     elif 17 <= hour < 22:
-        return "Good evening"
+        return "शुभ संध्या"     # Good evening
     else:
-        return "Good Night"
-    
-    
-    # if 5 <= hour < 12:
-    #     greeting_hi = "सुप्रभात"
-    # elif 12 <= hour < 17:
-    #     greeting_hi = "नमस्ते"
-    # elif 17 <= hour < 22:
-    #     greeting_hi = "शुभ संध्या"
-    # else:
-    #     greeting_hi = "नमस्कार"
-    
+        return "शुभ रात्रि"     # Good night
