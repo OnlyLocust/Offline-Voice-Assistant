@@ -24,6 +24,7 @@ import numpy as np
 import sounddevice as sd
 
 from utils.constants import SAMPLE_RATE
+from utils.sounds import play_notification_sound
 
 # ── Internal state ─────────────────────────────────────────────────────────────
 _notice_thread: threading.Thread | None = None
@@ -143,8 +144,11 @@ def _notice_worker(filepath: str, delay: float, cancel_ev: threading.Event) -> N
     print("🔔  नोटिस का समय आ गया!")
     print("📢 " * 10 + "\n")
 
+    # Play notification chime to alert the user, then announce + play recording
+    play_notification_sound()
+    time.sleep(0.3)          # brief gap between chime and TTS
     _speak_tts("नोटिस सुनिए।")
-    time.sleep(1.2)          # brief pause before playback
+    time.sleep(0.9)          # brief pause before playback
     _play_wav(filepath)
     _delete_file(filepath)   # delete immediately after playback
 

@@ -21,8 +21,11 @@ VOICE_PROFILE_PATH = os.path.join(
 )
 
 # Cosine similarity threshold for voice match (0.0 – 1.0)
-# Raise to 0.85+ for stricter matching; lower to 0.70 for noisy environments
-VOICE_AUTH_THRESHOLD = 0.78
+# 0.60 is the practical ceiling for MFCC mean-vector cosine similarity
+# between a short PIN utterance and an enrollment phrase.
+# Same speaker typically scores 0.55–0.70; different speaker scores < 0.45.
+# Raise toward 0.70 only after re-enrolling with the PIN phrase itself.
+VOICE_AUTH_THRESHOLD = 0.60
 
 # ── Hindi digit words → numeric value (for PIN spoken in Hindi) ───────────────
 HINDI_PIN_WORDS = {
@@ -41,3 +44,19 @@ HINDI_PIN_WORDS = {
 # ── Auth State Timeouts (seconds) ─────────────────────────────────────────────
 PIN_PROMPT_TIMEOUT  = 15   # seconds to wait for PIN after alarm intent detected
 VOICE_AUTH_DURATION = 3.0  # seconds of audio for voice verification
+
+# ── ASR Quality Filters ────────────────────────────────────────────────────────
+# Minimum average per-word confidence (0.0 – 1.0) reported by Vosk.
+# Utterances whose average confidence falls below this value are silently
+# discarded — they are almost certainly background noise or misrecognitions.
+# Tune lower (e.g. 0.55) in noisy environments; raise (e.g. 0.80) for
+# stricter filtering.  Set to 0.0 to disable the confidence gate entirely.
+ASR_CONFIDENCE_THRESHOLD = 0.65
+
+# Minimum number of Unicode characters a word must have to be counted as
+# "real speech".  Vosk sometimes hallucinates very short tokens like "अ",
+# "आ", "ई" for breath or background sounds.  Any utterance whose EVERY word
+# is shorter than this limit is dropped before reaching the state machine.
+# Hindi words are typically 2+ characters; 3 is a safe minimum.
+# Set to 1 to disable the word-length gate entirely.
+ASR_MIN_WORD_LENGTH = 3

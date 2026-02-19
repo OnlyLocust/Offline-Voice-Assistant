@@ -2,8 +2,8 @@
 alarm_thread.py — Background Alarm Checker
 ============================================
 Runs a daemon thread that checks every second whether any scheduled
-alarm time matches the current HH:MM. When matched, it rings the alarm
-and announces it via TTS.
+alarm time matches the current HH:MM. When matched, it plays a proper
+alarm sound and announces it via TTS.
 
 Public API:
     start_alarm_thread()  — call once at startup
@@ -14,8 +14,10 @@ Public API:
 
 import threading
 import time
-import subprocess
 from datetime import datetime
+
+from utils.sounds import play_alarm_sound
+from core.tts import speak
 
 # ── Internal state ─────────────────────────────────────────────────────────────
 _alarm_time: str | None = None
@@ -24,31 +26,6 @@ _lock = threading.Lock()
 
 
 # ── Alarm checker loop ─────────────────────────────────────────────────────────
-
-def _speak(text: str):
-    """Non-blocking TTS via PowerShell (Windows) or espeak (Linux/Pi)."""
-    try:
-        import platform
-        if platform.system() == "Windows":
-            safe = text.replace('"', '\\"')
-            subprocess.Popen(
-                [
-                    "powershell", "-Command",
-                    f'Add-Type -AssemblyName System.Speech; '
-                    f'(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{safe}")'
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        else:
-            # Raspberry Pi / Linux — espeak-ng with Hindi support
-            subprocess.Popen(
-                ["espeak-ng", "-v", "hi", text],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-    except Exception:
-        pass  # TTS failure should never crash the assistant
 
 
 def _alarm_checker():
@@ -65,7 +42,9 @@ def _alarm_checker():
                 print("\n" + "=" * 45)
                 print(msg)
                 print("=" * 45 + "\n")
-                _speak(f"अलार्म बज रहा है। समय हो गया।")
+                # Play proper alarm sound, then speak the TTS announcement
+                play_alarm_sound(repeats=4)
+                speak("अलार्म बज रहा है। समय हो गया।")
 
                 with _lock:
                     _alarm_time = None   # auto-clear after ringing
@@ -95,7 +74,7 @@ def set_alarm(t: str):
     with _lock:
         _alarm_time = t
     print(f"✅ अलार्म सेट हो गया: {t}")
-    _speak(f"अलार्म {t} बजे के लिए सेट हो गया।")
+    speak(f"अलार्म {t} बजे के लिए सेट हो गया।")
 
 
 def cancel_alarm():
@@ -104,7 +83,7 @@ def cancel_alarm():
     with _lock:
         _alarm_time = None
     print("🚫 अलार्म रद्द कर दिया गया।")
-    _speak("अलार्म रद्द कर दिया गया।")
+    speak("अलार्म रद्द कर दिया गया।")
 
 
 def get_alarm() -> str | None:

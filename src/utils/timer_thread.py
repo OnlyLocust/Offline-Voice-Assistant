@@ -2,7 +2,8 @@
 timer_thread.py — Non-blocking Background Timer
 ================================================
 Manages a single active timer in a daemon thread.
-When the timer finishes it plays a beep and speaks the completion message.
+When the timer finishes it plays a proper alarm sound and speaks the
+completion message.
 
 Public API:
     start_timer(seconds)   — start (or replace) a timer for N seconds
@@ -13,9 +14,10 @@ Public API:
 
 import threading
 import time
-import platform
-import subprocess
 import math
+
+from utils.sounds import play_alarm_sound
+from core.tts import speak
 
 # ── Internal state ─────────────────────────────────────────────────────────────
 _timer_thread: threading.Thread | None = None
@@ -29,77 +31,6 @@ _lock = threading.Lock()
 # TTS + Beep helpers (all offline)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _speak(text: str):
-    """Non-blocking offline TTS."""
-    try:
-        if platform.system() == "Windows":
-            safe = text.replace('"', '\\"')
-            subprocess.Popen(
-                [
-                    "powershell", "-Command",
-                    f'Add-Type -AssemblyName System.Speech; '
-                    f'(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak("{safe}")'
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        else:
-            subprocess.Popen(
-                ["espeak-ng", "-v", "hi", text],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-    except Exception:
-        pass
-
-
-def _beep():
-    """
-    Play a short beep sound offline.
-    Windows: uses PowerShell Console.Beep
-    Linux/Pi: uses 'beep' command or generates via /dev/audio fallback
-    """
-    try:
-        if platform.system() == "Windows":
-            subprocess.Popen(
-                ["powershell", "-Command",
-                 "[console]::beep(880,600); [console]::beep(880,600); [console]::beep(1100,900)"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        else:
-            # Try 'beep' utility first (sudo apt install beep)
-            try:
-                subprocess.Popen(
-                    ["beep", "-f", "880", "-l", "600", "-n",
-                     "-f", "880", "-l", "600", "-n",
-                     "-f", "1100", "-l", "900"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except FileNotFoundError:
-                # Fallback: generate beep via Python + sounddevice
-                _beep_sounddevice()
-    except Exception:
-        pass
-
-
-def _beep_sounddevice():
-    """Pure-Python beep using sounddevice (no external binary needed)."""
-    try:
-        import numpy as np
-        import sounddevice as sd
-
-        sr = 44100
-        def tone(freq, dur):
-            t = np.linspace(0, dur, int(sr * dur), endpoint=False)
-            return (0.4 * np.sin(2 * np.pi * freq * t)).astype(np.float32)
-
-        audio = np.concatenate([tone(880, 0.3), tone(880, 0.3), tone(1100, 0.5)])
-        sd.play(audio, samplerate=sr)
-        sd.wait()
-    except Exception:
-        pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -130,8 +61,8 @@ def _timer_worker(seconds: float, cancel_ev: threading.Event):
     print("⏰  टाइमर खत्म हो गया!")
     print("🔔 " * 10 + "\n")
 
-    _beep()
-    _speak("टाइमर खत्म हो गया।")
+    play_alarm_sound(repeats=3)
+    speak("टाइमर खत्म हो गया।")
 
     with _lock:
         _start_time = None

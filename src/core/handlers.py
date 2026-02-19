@@ -11,6 +11,7 @@ Exported functions:
 """
 
 import time
+import numpy as np
 
 from core.state import State
 from core.tts   import speak
@@ -331,9 +332,18 @@ def handle_active_command(text: str) -> State:
 # Public: AWAITING_PIN state handler
 # ─────────────────────────────────────────────────────────────────────────────
 
-def handle_pin_input(text: str) -> State:
+def handle_pin_input(text: str, audio: np.ndarray | None = None) -> State:
     """
     Process spoken text while waiting for the security PIN.
+
+    Args:
+        text : Vosk-recognised transcript of the PIN utterance
+        audio: Raw int16 PCM captured during that utterance (from the
+               RawInputStream buffer).  Passed to authenticate_user so
+               voice verification reuses this audio instead of calling
+               sd.rec() a second time (which would capture silence or
+               conflict with the open stream).
+
     Returns the next state (ACTIVE in all cases — either success or failure).
     """
     # Timeout
@@ -348,9 +358,9 @@ def handle_pin_input(text: str) -> State:
         speak("ठीक है, अलार्म रद्द।")
         return State.ACTIVE
 
-    # Authenticate
+    # Authenticate (pass pre-captured audio so we don't do a second recording)
     print(f"🔑 PIN attempt: '{text}'")
-    auth = authenticate_user(spoken_pin=text, check_voice=True)
+    auth = authenticate_user(spoken_pin=text, check_voice=True, audio=audio)
     print(f"   PIN ok={auth['pin_ok']}  Voice ok={auth['voice_ok']}")
     print(f"   {auth['reason']}")
 

@@ -3,3 +3,5 @@ sounddevice
 python_speech_features
 numpy
 scipy
+gTTS
+pygame

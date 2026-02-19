@@ -45,12 +45,58 @@ def _record_audio(duration: float) -> np.ndarray:
     return audio.flatten()
 
 
+def _trim_silence(audio: np.ndarray,
+                  frame_ms: int = 20,
+                  energy_threshold: float = 0.01) -> np.ndarray:
+    """
+    Remove leading and trailing low-energy (silent) frames from `audio`.
+
+    This prevents RMS-silent mic padding from pulling the mean MFCC vector
+    away from the actual voiced content, which is the dominant cause of
+    low cosine-similarity scores between enrollment and verification.
+
+    Args:
+        audio:            int16 PCM array.
+        frame_ms:         Frame size in milliseconds to measure energy.
+        energy_threshold: Fraction of peak RMS below which a frame is silent.
+
+    Returns the trimmed int16 array.  If everything is below the threshold
+    (completely silent input) the original array is returned unchanged.
+    """
+    if len(audio) == 0:
+        return audio
+
+    frame_size = int(SAMPLE_RATE * frame_ms / 1000)
+    audio_f    = audio.astype(np.float32) / 32768.0
+
+    # Compute per-frame RMS
+    n_frames = len(audio_f) // frame_size
+    if n_frames == 0:
+        return audio
+
+    frames = audio_f[: n_frames * frame_size].reshape(n_frames, frame_size)
+    rms    = np.sqrt(np.mean(frames ** 2, axis=1))   # shape: (n_frames,)
+    peak   = rms.max()
+    if peak == 0:
+        return audio
+
+    voiced = rms >= (energy_threshold * peak)         # True where speech present
+    voiced_indices = np.where(voiced)[0]
+    if voiced_indices.size == 0:
+        return audio
+
+    first = voiced_indices[0]  * frame_size
+    last  = (voiced_indices[-1] + 1) * frame_size
+    return audio[first:last]
+
+
 def _extract_mfcc(audio: np.ndarray) -> np.ndarray | None:
     """Return mean MFCC vector (shape: 13,) or None if library missing."""
     if not MFCC_AVAILABLE:
         return None
-    audio_f  = audio.astype(np.float32) / 32768.0
-    features = compute_mfcc(audio_f, samplerate=SAMPLE_RATE, numcep=13)
+    audio        = _trim_silence(audio)          # drop silent leading/trailing
+    audio_f      = audio.astype(np.float32) / 32768.0
+    features     = compute_mfcc(audio_f, samplerate=SAMPLE_RATE, numcep=13)
     return np.mean(features, axis=0)
 
 
@@ -72,10 +118,15 @@ def _profile_path() -> str:
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
 
-def enroll_voice(duration: float = 4.0) -> bool:
+def enroll_voice(duration: float = 4.0, passes: int = 3) -> bool:
     """
-    Record a voice sample and save its MFCC profile to disk.
-    Call this ONCE during initial setup.
+    Record multiple passes of the user's PIN phrase and save the averaged
+    MFCC profile to disk.  Call this ONCE during initial setup.
+
+    Args:
+        duration: Seconds to record per pass.
+        passes:   Number of repetitions to average (default 3).
+                  More passes → more stable profile → better recognition.
 
     Returns True on success, False on failure.
     """
@@ -83,17 +134,29 @@ def enroll_voice(duration: float = 4.0) -> bool:
         print("❌ Enrollment skipped: python_speech_features not available.")
         return False
 
-    print("📢 बोलिए — अपना परिचय दीजिए (Speak any phrase for enrollment)...")
-    audio   = _record_audio(duration)
-    profile = _extract_mfcc(audio)
+    vectors = []
+    for i in range(passes):
+        print(f"\n🎙️  Pass {i + 1}/{passes} — अपना PIN बोलिए (Speak your PIN)...")
+        audio = _record_audio(duration)
+        vec   = _extract_mfcc(audio)
+        if vec is None:
+            print(f"   ⚠️  Pass {i + 1} failed — skipping.")
+            continue
+        vectors.append(vec)
+        print(f"   ✅ Pass {i + 1} recorded.")
+        if i < passes - 1:
+            input("   Enter दबाएं और फिर PIN बोलें... (Press Enter, then speak PIN...)")
 
-    if profile is None:
+    if not vectors:
+        print("❌ No valid passes recorded. Enrollment failed.")
         return False
+
+    profile = np.mean(vectors, axis=0)   # average across all passes
 
     path = _profile_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     np.save(path, profile)
-    print(f"✅ Voice profile saved → {path}")
+    print(f"\n✅ Voice profile saved ({len(vectors)}/{passes} passes averaged) → {path}")
     return True
 
 
@@ -125,6 +188,46 @@ def verify_voice(duration: float = 3.0) -> bool:
 
     print("🎙️  आवाज़ सत्यापन — कुछ बोलिए (Speak for voice verification)...")
     audio  = _record_audio(duration)
+    sample = _extract_mfcc(audio)
+
+    if sample is None:
+        return False
+
+    score = _cosine_similarity(profile, sample)
+    print(f"🔍 Voice similarity: {score:.3f}  (threshold: {VOICE_AUTH_THRESHOLD})")
+    return score >= VOICE_AUTH_THRESHOLD
+
+
+def verify_voice_from_audio(audio: np.ndarray) -> bool:
+    """
+    Compare a PRE-RECORDED audio array with the enrolled profile.
+    Use this when the microphone is already open in a RawInputStream
+    (calling sd.rec() again would conflict or record silence).
+
+    Args:
+        audio: int16 numpy array of raw PCM samples at SAMPLE_RATE
+
+    Returns:
+        True  — similarity ≥ VOICE_AUTH_THRESHOLD  (authorized)
+        True  — if MFCC library missing, no profile, or audio too short (fail-open)
+        False — similarity below threshold
+    """
+    if not MFCC_AVAILABLE:
+        print("⚠️  Voice auth skipped (library missing). Allowing by default.")
+        return True
+
+    profile = load_voice_profile()
+    if profile is None:
+        print("⚠️  No voice profile found. Run enroll_voice() first. Allowing.")
+        return True
+
+    # Need at least ~0.5 s of audio to get meaningful MFCCs
+    min_samples = int(SAMPLE_RATE * 0.5)
+    if len(audio) < min_samples:
+        print(f"⚠️  PIN audio too short ({len(audio)} samples < {min_samples}). Allowing.")
+        return True
+
+    print("🔍 आवाज़ की जाँच हो रही है (Verifying voice from PIN audio)...")
     sample = _extract_mfcc(audio)
 
     if sample is None:
