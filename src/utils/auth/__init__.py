@@ -37,21 +37,20 @@ def authenticate_user(spoken_pin: str,
         result["reason"] = "❌ गलत पासवर्ड (Wrong PIN)"
         return result
 
-    # Step 2 — Voice
+    # Step 2 — Voice (informational only — PIN alone is enough to authorize)
     if check_voice:
         if audio is not None and len(audio) > 0:
-            # Use the already-recorded PIN audio — no extra mic recording needed
             result["voice_ok"] = verify_voice_from_audio(audio)
         else:
-            # Fallback: record fresh (only works if mic stream is NOT open)
             result["voice_ok"] = verify_voice()
 
         if not result["voice_ok"]:
-            result["reason"] = "❌ आवाज़ मेल नहीं खाती (Voice mismatch)"
-            return result
+            # Warn but do NOT block — correct PIN is sufficient
+            print("⚠️  Voice mismatch detected (PIN correct — alarm will still be set)")
     else:
         result["voice_ok"] = True   # skipped
 
+    # PIN correct → authorized regardless of voice result
     result["authorized"] = True
     result["reason"] = "✅ प्रमाणीकरण सफल (Authentication successful)"
     return result

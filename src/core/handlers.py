@@ -21,7 +21,7 @@ from utils.alarm_thread    import get_alarm, cancel_alarm
 from utils.timer_thread    import start_timer, cancel_timer, is_running, format_remaining
 from utils.auth            import authenticate_user
 
-from intents.time_intent      import check_time_query
+from intents.time_intent      import check_time_query, check_date_query
 from intents.remainder_intent import extract_alarm_intent
 from intents.timer_intent     import extract_timer_intent
 from intents.math_intent      import extract_math_intent
@@ -300,8 +300,9 @@ def handle_active_command(text: str) -> State:
         print("🙏 Going back to sleep...\n")
         return State.SLEEPING
 
-    # 2 — Time query (non-exclusive)
+    # 2 — Time / Date query (non-exclusive)
     check_time_query(text)
+    check_date_query(text)
 
     # 3 — Volume control
     if _handle_volume(text):

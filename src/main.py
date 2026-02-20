@@ -25,6 +25,7 @@ def _print_banner() -> None:
     print("=" * w)
     print(f"   Wake word  : '{WAKE_WORD}'")
     print(f"   Exit word  : '{EXIT_WORD}'")
+    print(f"   Date       : {datetime.now().strftime('%a, %d %b %Y')}")
     print(f"   Time       : {datetime.now().strftime('%H:%M:%S')}")
     print("-" * w)
     print("   Alarm   : 'kal saat baje jagana'  (PIN + voice)")

@@ -96,15 +96,15 @@ def record_notice(duration: float = 7.0) -> str | None:
 
 
 def _play_wav(filepath: str) -> None:
-    """Play a WAV file using sounddevice (offline, no external player needed)."""
+    """Play a WAV file using pygame mixer (avoids conflict with open mic stream)."""
     try:
-        with wave.open(filepath, "r") as wf:
-            frames = wf.readframes(wf.getnframes())
-            audio  = np.frombuffer(frames, dtype=np.int16)
-            rate   = wf.getframerate()
-
-        sd.play(audio.astype(np.float32) / 32768.0, samplerate=rate)
-        sd.wait()
+        import pygame
+        pygame.mixer.init()
+        pygame.mixer.music.load(filepath)
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
+            time.sleep(0.05)
+        pygame.mixer.music.unload()
     except Exception as e:
         print(f"❌ Playback failed: {e}")
 
